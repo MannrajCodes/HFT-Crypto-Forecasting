@@ -1,0 +1,40 @@
+Environments
+
+.env
+venv/
+env/
+.venv/
+
+Python
+
+pycache/
+*.py[cod]
+*$py.class
+*.so
+
+Jupyter Notebooks
+
+.ipynb_checkpoints
+
+IDEs
+
+.vscode/
+.idea/
+
+Storage & Database Volumes (Don't upload Docker data!)
+
+influxdb2/
+zookeeper/
+kafka/
+grafana/
+prometheus/
+storage/
+
+Keep the folder structure for storage but ignore the heavy weights
+
+storage/model_checkpoints/*.h5
+!storage/model_checkpoints/.gitkeep
+
+Logs
+
+*.log
