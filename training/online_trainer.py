@@ -9,14 +9,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class OnlineTrainer:
-    def __init__(self, batch_size=32):
+    def __init__(self):
         self.model = forecast_model.get_model()
-        self.batch_size = batch_size
-        self.x_buffer = []
-        self.y_buffer = []
-        self.weights_path = "storage/model_checkpoints/latest_model.weights.h5"
         
-        # THE FIX: A rolling memory of the last 300 predictions for accurate R2 math
+        # UPGRADE: Experience Replay Buffer
+        # We hold the last 128 seconds of data so the model learns a smooth curve, not a sudden step.
+        self.replay_x = deque(maxlen=128)
+        self.replay_y = deque(maxlen=128)
+        
+        self.train_frequency = 4  # Gently update the weights every 4 ticks
+        self.step_count = 0
+        
+        self.weights_path = "storage/model_checkpoints/latest_model.weights.h5"
         self.history_true = deque(maxlen=300)
         self.history_pred = deque(maxlen=300)
         
@@ -30,59 +34,49 @@ class OnlineTrainer:
             logger.info("No existing weights found. Starting fresh.")
 
     def add_sample(self, x_seq, y_target):
-        self.x_buffer.append(x_seq)
-        self.y_buffer.append(y_target)
+        # We append to the rolling buffer (it automatically pushes old data out)
+        self.replay_x.append(x_seq)
+        self.replay_y.append(y_target)
+        self.step_count += 1
         
-        if len(self.x_buffer) >= self.batch_size:
+        # Once we have 64 steps of history, we train every 4 seconds
+        if len(self.replay_x) >= 64 and self.step_count % self.train_frequency == 0:
             self.train_incremental()
 
     def train_incremental(self):
-        if not self.x_buffer:
-            return
-            
-        logger.info(f"Starting incremental training on {len(self.x_buffer)} new samples...")
+        x_train = np.array(self.replay_x)
+        y_train = np.array(self.replay_y)
         
-        x_train = np.array(self.x_buffer)
-        y_train = np.array(self.y_buffer)
-        
-        # 1. Train the model on the new batch (Stable 10 epochs)
+        # Train for just ONE epoch. This "glides" the weights down smoothly during a crash
+        # instead of causing a 90-degree violent staircase drop.
         history = self.model.fit(
-            x_train, 
-            y_train, 
-            epochs=10, 
-            batch_size=self.batch_size, 
+            x_train, y_train, 
+            epochs=1, 
+            batch_size=32, 
             verbose=0
         )
         
-        loss = history.history['loss'][0]
-        mae = history.history['mae'][0]
+        # Predict the latest batch for our R2 scoring
+        y_pred = self.model.predict(x_train[-self.train_frequency:], verbose=0)
         
-        # 2. Predict on the batch to log history
-        y_pred = self.model.predict(x_train, verbose=0)
-        
-        # Append to our rolling 5-minute memory
-        for true_val, pred_val in zip(y_train, y_pred):
+        for true_val, pred_val in zip(y_train[-self.train_frequency:], y_pred):
             self.history_true.append(true_val[0])
             self.history_pred.append(pred_val[0])
             
-        # 3. CALCULATE R2 SCORE ON THE LARGER WINDOW
-        # Wait until we have at least 64 data points to avoid the divide-by-zero bug
         if len(self.history_true) > 64:
             try:
                 current_r2 = r2_score(self.history_true, self.history_pred)
             except:
                 current_r2 = 0.0
         else:
-            current_r2 = 0.0 # Warming up
+            current_r2 = 0.0 
             
-        logger.info(f"Training complete. Loss (MSE): {loss:.4f}, MAE: {mae:.4f}, Rolling R² Score: {current_r2:.4f}")
+        loss = history.history.get('loss', [0])[0]
+        mae = history.history.get('mae', [0])[0]
         
-        # Save weights
+        logger.info(f"Smooth Training. Loss (Huber): {loss:.4f}, MAE: {mae:.4f}, Rolling R²: {current_r2:.4f}")
+        
         os.makedirs(os.path.dirname(self.weights_path), exist_ok=True)
         self.model.save_weights(self.weights_path)
-        
-        # Clear batch buffer
-        self.x_buffer = []
-        self.y_buffer = []
 
 online_trainer = OnlineTrainer()

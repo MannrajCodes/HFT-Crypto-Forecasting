@@ -1,4 +1,5 @@
 import tensorflow as tf
+import keras
 from keras import layers, models
 from config.config import settings
 
@@ -26,9 +27,9 @@ class ForecastModel:
         
         model = models.Model(inputs=inputs, outputs=outputs)
         
-        # Back to MSE loss (Mean Squared Error), which works perfectly for this
+        # UPGRADE: Huber Loss tracks curves much smoother than MSE
         optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
-        model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
+        model.compile(optimizer=optimizer, loss=tf.keras.losses.Huber(), metrics=['mae'])
         
         return model
 

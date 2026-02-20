@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     sequence_length: int = 64      # SWT Wavelet optimal memory
     forecast_horizon: int = 1      # Predicting the IMMEDIATE next market tick!
     features: int = 2              # Target (Price) + Feature (Trade Volume)
-    learning_rate: float = 0.001  # Steady learning for financial data
+    learning_rate: float = 0.0002  # Steady learning for financial data
 
     # Default asset
     default_article: str = "BTC-USDT"
